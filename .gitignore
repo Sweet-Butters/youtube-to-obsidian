@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.DS_Store
+
+# Obsidian — keep app.json, ignore per-machine workspace/cache
+vault/.obsidian/workspace*
+vault/.obsidian/cache
+vault/.obsidian/plugins/*/data.json
+vault.example/.obsidian/workspace*
+vault.example/.obsidian/cache
+vault.example/.obsidian/plugins/*/data.json
+.trash/
+
+# Secrets — extra defense, never commit these
+*credentials*
+*secret*
+*.key
+*.pem
+keys.txt
+.env.local

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notes_project"
+version = "0.1.0"
+description = "YouTube video to AI-summarized Obsidian note"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "auto_project @ git+https://github.com/Sweet-Butters/auto_project.git@v0.5.0",
+  "youtube-transcript-api>=1.2.0",
+  "yt-dlp>=2024.10.0",
+  "requests>=2.32",
+  "PyYAML>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["notes_project"]

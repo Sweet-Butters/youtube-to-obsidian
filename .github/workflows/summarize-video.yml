@@ -1,0 +1,78 @@
+name: Summarize YouTube Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "YouTube video URL"
+        required: true
+        type: string
+      display_lang:
+        description: "Category display language"
+        required: false
+        default: "ko"
+        type: choice
+        options:
+          - ko
+          - en
+
+permissions:
+  contents: write
+
+jobs:
+  process:
+    # IMPORTANT: must run on a self-hosted runner with a residential IP.
+    # GitHub-hosted runners (Azure IPs) are blocked by youtube-transcript-api.
+    # See README for self-hosted runner setup.
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python venv
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip --quiet
+          .venv/bin/pip install -e . --quiet
+
+      - name: Summarize
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: .venv/bin/python -m notes_project "${{ inputs.url }}" --lang "${{ inputs.display_lang }}"
+
+      - name: Commit & push note
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vault/YouTube/
+          if git diff --cached --quiet; then
+            echo "No new note to commit"
+            exit 0
+          fi
+          latest=$(cd vault/YouTube && ls -t *.md | head -1)
+          git commit -m "note: ${latest}"
+          git push
+
+      - name: Sync local Obsidian copy (optional, instant pull)
+        # If you set the LOCAL_VAULT_PATH repository variable, this step pulls
+        # the freshly-pushed note into a local clone — so a local Obsidian
+        # vault sees the new note immediately (no polling, no Obsidian Git
+        # plugin needed). Only useful on self-hosted runners that share a
+        # filesystem with your Obsidian machine.
+        if: vars.LOCAL_VAULT_PATH != ''
+        continue-on-error: true
+        run: |
+          LOCAL="${{ vars.LOCAL_VAULT_PATH }}"
+          if [ -d "$LOCAL/.git" ]; then
+            cd "$LOCAL"
+            git fetch --quiet origin main
+            git pull --ff-only --quiet \
+              && echo "✓ Local copy synced for Obsidian" \
+              || echo "⚠️ Local pull skipped (uncommitted changes or branch mismatch)"
+          else
+            echo "Local repo not found at $LOCAL — skipping"
+          fi
