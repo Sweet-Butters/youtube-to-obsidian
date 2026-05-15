@@ -85,11 +85,32 @@ The `category` field is the **user-editable display value**. `category_id` / `ca
 - Reboot survival needs `sudo loginctl enable-linger <user>` (one-time sudo prompt)
 - Without linger, the runner stops when the user logs out
 
-## Mobile (Android) gotchas
+## Mobile (Android) gotchas — discovered during real setup
 
-- Vault must be opened at **repo root** (where `.git` is), not `vault/` subdirectory. Obsidian Git on mobile (isomorphic-git) doesn't walk up reliably.
-- `Author name for commits` and `Author email for commits` are **required** even when `Disable push` is ON — the plugin refuses to run otherwise.
-- Use `Settings → Files & links → Excluded files` to hide non-vault paths (`notes_project/`, `.github/`, `scripts/`, etc.) from Obsidian's file tree.
+These three pitfalls cost meaningful time during our initial setup. They are documented in README's "Common pitfalls (mobile)" section for end users; Claude should be aware of them when helping debug mobile sync:
+
+### A. "Git: Pull" runs no-op until author identity is set
+
+Obsidian Git's `pull` (and all other git commands) silently does nothing if `Author name for commits` AND `Author email for commits` are empty. This applies **even when `Disable push` is ON**, which is counterintuitive — a user who plans only to pull will reasonably assume no author config is needed. The plugin pre-validates author identity before running any operation.
+
+**When debugging "sync command does nothing"**: first check the two author fields. They can be set to any string (e.g. `phone-readonly` / `<YOUR_EMAIL>`) — the values don't have to be real.
+
+### B. Sync trigger discoverability on mobile
+
+Mobile Obsidian has no default sync icon. Trigger sources, in order of how a user discovers them:
+
+1. Command palette (top-bar search icon → "pull")
+2. Left sidebar ribbon (swipe from left edge)
+3. Mobile toolbar (must be configured: Settings → Appearance → Manage toolbar)
+4. App restart with `Pull on startup` enabled
+
+When helping a user who "can't find the sync button", check which of these they've tried. The command palette is the most reliable fallback.
+
+### C. Subdirectory vault breaks isomorphic-git on Android
+
+If the vault is opened at `repo/vault/` and `.git` lives at `repo/.git`, mobile Obsidian Git typically can't find the parent. The fix is to open `repo/` as the vault (not the subfolder) and add non-vault paths to **Settings → Files & links → Excluded files** to hide them from the file tree.
+
+This is **not** an issue on desktop Obsidian Git, where filesystem walk-up works fine. Only mobile (Android, scoped storage) is affected.
 
 ## Related repos
 

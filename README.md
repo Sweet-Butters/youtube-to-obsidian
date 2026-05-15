@@ -21,10 +21,11 @@
 7. [Phone-triggered runs (Telegram)](#phone-triggered-runs-telegram)
 8. [Categories](#categories)
 9. [Mobile Obsidian setup](#mobile-obsidian-setup)
-10. [Troubleshooting](#troubleshooting)
-11. [Roadmap](#roadmap)
-12. [Acknowledgments](#acknowledgments)
-13. [License](#license)
+10. [Common pitfalls (mobile)](#common-pitfalls-mobile)
+11. [Troubleshooting](#troubleshooting)
+12. [Roadmap](#roadmap)
+13. [Acknowledgments](#acknowledgments)
+14. [License](#license)
 
 ---
 
@@ -290,6 +291,10 @@ Or just edit the `category:` frontmatter field directly in Obsidian.
 
 ## Mobile Obsidian setup
 
+> Heads-up: mobile Obsidian Git has a few non-obvious pitfalls that are worth
+> reading before you start. See [Common pitfalls (mobile)](#common-pitfalls-mobile)
+> below for the symptoms we hit, the causes, and the fixes.
+
 To see notes on your phone (Android), use [Obsidian Git](https://github.com/Vinzent03/obsidian-git):
 
 1. **Create a fine-grained Personal Access Token** scoped to your repo, `Contents: Read-only` (this template is public but if you fork as private the PAT is needed).
@@ -310,6 +315,60 @@ To see notes on your phone (Android), use [Obsidian Git](https://github.com/Vinz
    - **Author name / Author email**: must be filled in (any value) — Obsidian Git refuses to run otherwise.
 5. **Exclude non-vault files** so Obsidian only shows the markdown notes:
    Settings → Files & links → Excluded files: add `notes_project/`, `.github/`, `scripts/`, `tests/`, `*.py`, `*.toml`, `*.txt`.
+
+## Common pitfalls (mobile)
+
+These three tripped us up during initial setup. Capturing them here so they don't trip you up:
+
+### 1. "Git: Pull" appears in the command palette but tapping it does nothing
+
+**Symptom**: You install Obsidian Git, find or pin **Git: Pull** in the command palette, tap it, and… nothing happens. No toast, no error, no log entry. The plugin appears to load fine, but every git command is a no-op.
+
+**Cause**: Obsidian Git refuses to perform *any* git operation — even read-only ones like `pull` — until the **author identity** is configured. This is true even when `Disable push` is enabled, which is counterintuitive (you'd think no commits = no author needed).
+
+**Fix**: Settings → **Obsidian Git** → fill in **both**:
+
+- *Author name for commits*: any string (e.g. `phone-readonly`)
+- *Author email for commits*: any email (e.g. `<YOUR_EMAIL>`)
+
+Save. Re-tap **Git: Pull** — it now runs.
+
+### 2. Finding the sync trigger on mobile
+
+Unlike desktop, mobile Obsidian doesn't show a sync icon by default. Four ways to trigger a pull, in increasing convenience:
+
+| Method | How |
+|---|---|
+| Command palette (default) | Tap the **⌘ / search icon** in the top bar (or swipe down) → type `pull` → tap **Obsidian Git: Pull** |
+| Left sidebar (ribbon) | Swipe from the **left edge** of the screen → tap the Git icon Obsidian Git adds to the ribbon |
+| Mobile toolbar (1-tap) | Settings → **Appearance** → **Manage toolbar** → add the `Obsidian Git: Pull` command. Now it's one tap on the note toolbar. |
+| App restart | Close + reopen the app. `Pull on startup` (in plugin settings) runs a pull automatically. |
+
+### 3. Subdirectory vault doesn't see the parent `.git`
+
+**Symptom**: You clone the repo into `~/storage/shared/youtube-to-obsidian/`, then open `youtube-to-obsidian/vault/` as the Obsidian vault. Obsidian Git settings show "Not a git repository", or commands fail with "no git repo found".
+
+**Cause**: Obsidian Git on mobile uses `isomorphic-git`, which does not reliably walk up the directory tree to find a parent `.git` on Android's scoped-storage filesystem.
+
+**Fix**: Open the **repository root** (`youtube-to-obsidian/`) as your vault, not the `vault/` subfolder. Then hide non-vault files so they don't clutter the file tree:
+
+Settings → **Files & links** → **Excluded files** → add:
+
+```
+notes_project/
+.github/
+scripts/
+tests/
+*.py
+*.toml
+*.txt
+.env.example
+.gitignore
+```
+
+You'll only see `vault/`, `README.md`, `CLAUDE.md`, `CHANGELOG.md`, and `LICENSE` in the file tree — clean and focused.
+
+---
 
 ## Troubleshooting
 

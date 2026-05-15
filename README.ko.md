@@ -21,10 +21,11 @@
 7. [폰에서 트리거 (Telegram)](#폰에서-트리거-telegram)
 8. [카테고리](#카테고리)
 9. [모바일 Obsidian 셋업](#모바일-obsidian-셋업)
-10. [문제 해결](#문제-해결)
-11. [로드맵](#로드맵)
-12. [감사](#감사)
-13. [License](#license)
+10. [자주 헤매는 부분 (모바일)](#자주-헤매는-부분-모바일)
+11. [문제 해결](#문제-해결)
+12. [로드맵](#로드맵)
+13. [감사](#감사)
+14. [License](#license)
 
 ---
 
@@ -290,6 +291,10 @@ python scripts/recategorize.py vault/YouTube/<note>.md --new-category "교육"
 
 ## 모바일 Obsidian 셋업
 
+> 주의: 모바일 Obsidian Git에는 몇 가지 비직관적인 함정이 있습니다. 시작 전에
+> 아래 [자주 헤매는 부분 (모바일)](#자주-헤매는-부분-모바일) 섹션을 한 번 보시면
+> 우리가 만난 증상·원인·해결책을 시간 절약하면서 피할 수 있습니다.
+
 폰 (Android) 에서 노트 보려면 [Obsidian Git](https://github.com/Vinzent03/obsidian-git) 사용:
 
 1. **Fine-grained Personal Access Token 발급** — 본 레포 한정, `Contents: Read-only` 권한 (본 템플릿은 public이지만 private fork 시 PAT 필요).
@@ -309,6 +314,60 @@ python scripts/recategorize.py vault/YouTube/<note>.md --new-category "교육"
    - Auto commit-and-sync interval: `0`
    - **Author name / Author email**: 아무 값이든 채워넣어야 함 — 비어있으면 Obsidian Git 명령 자체가 실행 안 됨.
 5. **vault 외 파일 숨기기** — Settings → Files & links → Excluded files 에 추가: `notes_project/`, `.github/`, `scripts/`, `tests/`, `*.py`, `*.toml`, `*.txt`.
+
+## 자주 헤매는 부분 (모바일)
+
+초기 셋업 중 우리가 실제로 부딪힌 3가지입니다. 같은 함정에 빠지지 않도록 기록:
+
+### 1. Command palette에 "Git: Pull" 있는데 탭해도 안 됨
+
+**증상**: Obsidian Git 설치하고 command palette에서 **Git: Pull**을 찾거나 pin 해두고 탭 — 그런데 아무 일도 안 일어남. 토스트도, 에러도, 로그 한 줄도 없음. 플러그인은 정상 로드된 것 같은데 모든 git 명령이 no-op.
+
+**원인**: Obsidian Git은 **author identity** 가 설정되기 전까지 *어떤* git 작업도 — `pull` 같은 읽기 전용까지 — 거부합니다. `Disable push` 가 켜져 있어도 동일 (직관에 어긋남: "commit 안 하니까 author 필요 없겠지" 라고 생각하기 쉬움).
+
+**해결**: Settings → **Obsidian Git** → 다음 둘 다 채우기:
+
+- *Author name for commits*: 아무 문자열 (예: `phone-readonly`)
+- *Author email for commits*: 아무 이메일 (예: `<YOUR_EMAIL>`)
+
+저장 후 **Git: Pull** 다시 탭 → 정상 작동.
+
+### 2. 폰에서 sync 트리거 찾기
+
+데스크탑과 달리 폰 Obsidian은 sync 아이콘을 기본으로 안 보여줍니다. pull 트리거 방법 4가지, 편한 순:
+
+| 방법 | 어떻게 |
+|---|---|
+| Command palette (기본) | 상단 바의 **⌘ / 돋보기 아이콘** 탭 (또는 위에서 스와이프) → `pull` 입력 → **Obsidian Git: Pull** 탭 |
+| 좌측 사이드바 (ribbon) | 화면 **왼쪽 가장자리에서 스와이프** → Obsidian Git이 추가한 Git 아이콘 탭 |
+| 모바일 툴바 (1-탭) | Settings → **Appearance** → **Manage toolbar** → `Obsidian Git: Pull` 명령 추가. 이제 노트 툴바에서 1탭. |
+| 앱 재시작 | 앱 종료 + 재실행. 플러그인 설정의 `Pull on startup` 이 자동으로 pull 실행. |
+
+### 3. 하위 폴더 vault가 부모 `.git` 를 못 찾음
+
+**증상**: 레포를 `~/storage/shared/youtube-to-obsidian/` 에 clone 후, `youtube-to-obsidian/vault/` 를 Obsidian vault로 열기. Obsidian Git 설정에서 "Not a git repository" 표시되거나 명령이 "no git repo found" 로 실패.
+
+**원인**: 모바일 Obsidian Git은 `isomorphic-git` 기반인데, Android의 scoped-storage 파일시스템에서 부모 `.git` 까지 walk-up 하는 게 신뢰성이 떨어집니다.
+
+**해결**: **레포 루트** (`youtube-to-obsidian/`) 를 vault로 열기 — `vault/` 하위 폴더 X. 그리고 비-vault 파일은 파일 트리에서 숨김:
+
+Settings → **Files & links** → **Excluded files** 에 추가:
+
+```
+notes_project/
+.github/
+scripts/
+tests/
+*.py
+*.toml
+*.txt
+.env.example
+.gitignore
+```
+
+이제 파일 트리에 `vault/`, `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `LICENSE` 만 보입니다 — 깔끔.
+
+---
 
 ## 문제 해결
 
