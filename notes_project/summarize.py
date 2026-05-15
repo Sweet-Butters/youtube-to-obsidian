@@ -1,14 +1,21 @@
 """LLM-based summarization producing structured output.
 
 Uses auto_project.llm which routes Gemini -> Groq -> Cerebras (free tiers).
+
+Since v2, accepts an optional list of existing vault notes — the LLM
+embeds `[[exact title]]` references where topically relevant, building
+a Zettelkasten-style backlink graph automatically.
 """
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass
+from typing import Iterable
 
 from auto_project import llm
+
+from .vault_indexer import ExistingNote, format_for_prompt
 
 _SYSTEM = """You are a professional research assistant. Given a YouTube video transcript and metadata, produce a structured summary suitable for a permanent knowledge base.
 
@@ -16,7 +23,7 @@ Output ONLY a single JSON object. No code fences (```), no prose before or after
 
 The JSON object has these fields:
 - "summary_short": string. 2-3 sentence overview, plain text.
-- "summary_long": list of 6-12 strings, each a bullet point covering a key argument/claim/evidence/conclusion. No leading "- ", just the content.
+- "summary_long": list of 6-12 strings, each a bullet point covering a key argument/claim/evidence/conclusion. No leading "- ", just the content. When an existing vault note is topically related, embed its exact title as a Markdown wikilink `[[Note Title]]` inside the bullet — but ONLY when there is a genuine conceptual link, never for filler.
 - "key_terms": list of 3-8 strings, important terms/concepts (just the term, no definitions).
 - "tags": list of 3-7 lowercase kebab-case strings (e.g. "transformer-architecture"). ASCII only, no spaces, no Korean characters.
 - "quotes": list of up to 5 objects, each {"text": "...", "ts": "MM:SS or HH:MM:SS"}. Use [] if no standout quotes.
@@ -34,13 +41,32 @@ class Summary:
     quotes: list[dict]
 
 
-def summarize(transcript: str, *, title: str, channel: str, lang: str) -> Summary:
-    """Call the LLM and parse a structured summary. Retries once on parse error."""
+def summarize(
+    transcript: str,
+    *,
+    title: str,
+    channel: str,
+    lang: str,
+    existing_notes: Iterable[ExistingNote] | None = None,
+) -> Summary:
+    """Call the LLM and parse a structured summary. Retries once on parse error.
+
+    If `existing_notes` is provided, the LLM is asked to embed `[[wikilinks]]`
+    in summary_long where topically relevant — building a Zettelkasten-style
+    backlink graph as new notes accumulate.
+    """
+    backlink_context = ""
+    if existing_notes:
+        notes_list = list(existing_notes)
+        if notes_list:
+            backlink_context = "\n\n" + format_for_prompt(notes_list)
+
     prompt = (
         f"Title: {title}\n"
         f"Channel: {channel}\n"
-        f"Transcript language: {lang}\n\n"
-        f"Transcript:\n{transcript[:50_000]}\n"
+        f"Transcript language: {lang}\n"
+        f"{backlink_context}"
+        f"\nTranscript:\n{transcript[:50_000]}\n"
     )
     raw = llm.call(prompt, system=_SYSTEM, timeout=120)
     try:

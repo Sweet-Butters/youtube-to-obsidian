@@ -42,6 +42,11 @@ jobs:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Whisper local fallback for caption-less videos. CPU-heavy; only
+          # enabled here on the self-hosted runner because the fallback
+          # workflow runs on GHA-hosted runners (paid minutes, slow CPU).
+          ENABLE_WHISPER: "1"
+          WHISPER_MODEL: "base"
         run: .venv/bin/python -m notes_project "${{ inputs.url }}" --lang "${{ inputs.display_lang }}"
 
       - name: Commit & push note

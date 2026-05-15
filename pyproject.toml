@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notes_project"
-version = "0.1.0"
+version = "0.2.0"
 description = "YouTube video to AI-summarized Obsidian note"
 readme = "README.md"
 license = { text = "MIT" }
@@ -15,6 +15,10 @@ dependencies = [
   "yt-dlp>=2024.10.0",
   "requests>=2.32",
   "PyYAML>=6",
+  # Optional local-Whisper for caption-less videos. The pipeline checks
+  # ENABLE_WHISPER=1 before invoking it, so installing this is safe even
+  # on hosted runners where Whisper is disabled.
+  "faster-whisper>=1.0.0",
 ]
 
 [project.optional-dependencies]

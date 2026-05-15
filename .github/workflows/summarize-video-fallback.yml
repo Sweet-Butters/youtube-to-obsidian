@@ -1,0 +1,73 @@
+name: Summarize YouTube Video (fallback)
+
+# Hosted-runner fallback for when the self-hosted runner is offline.
+# Uses a WebShare residential proxy to bypass YouTube's cloud-IP block on
+# the transcript scrape. Whisper is intentionally NOT enabled here — running
+# faster-whisper on a free GHA runner is slow and burns CI minutes; if no
+# captions exist, the run errors out and the user can retry once the
+# self-hosted runner is back up.
+#
+# The bot (auto_project) dispatches this workflow instead of the main one
+# when no self-hosted runner is registered as online.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "YouTube video URL"
+        required: true
+        type: string
+      display_lang:
+        description: "Category display language"
+        required: false
+        default: "ko"
+        type: choice
+        options:
+          - ko
+          - en
+
+permissions:
+  contents: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install --upgrade pip --quiet
+          pip install -e . --quiet
+
+      - name: Summarize via WebShare proxy
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          # Direct caption fetch will be blocked on GHA's Azure IP; the code
+          # falls through to WebShare automatically when these are set.
+          WEBSHARE_USER: ${{ secrets.WEBSHARE_USER }}
+          WEBSHARE_PASS: ${{ secrets.WEBSHARE_PASS }}
+          # Whisper deliberately disabled on hosted runners (CPU-only,
+          # burns CI minutes). Caption-less videos error out here.
+        run: python -m notes_project "${{ inputs.url }}" --lang "${{ inputs.display_lang }}"
+
+      - name: Commit & push note
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vault/YouTube/
+          if git diff --cached --quiet; then
+            echo "No new note to commit"
+            exit 0
+          fi
+          latest=$(cd vault/YouTube && ls -t *.md | head -1)
+          git commit -m "note (fallback): ${latest}"
+          git push
