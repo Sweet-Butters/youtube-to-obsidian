@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-15
+
+### Changed
+
+- **Front-page docs now surface v0.2.0 features.** Until now, `v0.2.0`'s hybrid architecture and Zettelkasten backlinks were only described in `CHANGELOG.md` — new visitors to the repo saw a `v0.1.x`-flavoured README. Promoted them to first-class README content.
+
+### Added (documentation)
+
+- `README.md` / `README.ko.md`:
+  - **Architecture diagram redrawn** to show both execution paths side by side (fast self-hosted with Whisper vs. fallback hosted with WebShare proxy) plus the shared post-fetch pipeline (vault indexer → LLM → commit).
+  - **Features list** opens with three v0.2.0 bullets (`Always-on hybrid execution`, `Caption-less videos handled`, `Automatic Zettelkasten backlinks`) so the value over v0.1.x is visible above the fold.
+  - **Configuration table** split into "required / fallback-only / optional", with `WEBSHARE_USER`, `WEBSHARE_PASS`, `ENABLE_WHISPER`, `WHISPER_MODEL` explicitly listed.
+- `CLAUDE.md`:
+  - One-liner architecture replaced with the same dual-path diagram for AI assistants.
+  - New **"What changed from v0.1.x to v0.2.0"** table: each old limitation paired with its v0.2.0 resolution.
+  - Dependency list updated to v0.5.0 (auto_project), and `faster-whisper` added with the gated-import note.
+  - Setup checklist now mentions `WEBSHARE_*` secrets and the auto_project bot v0.6.0 requirement for automatic hybrid routing.
+
+### Why this matters
+
+The pipeline gained meaningful capabilities in v0.2.0 (always-on, Whisper, backlinks) but those wins were buried in a release note. README is the front door — putting v0.2.0 there makes the *current* shape of the project the *first* thing a forker sees, instead of forcing them to dig through CHANGELOG to understand whether the project still has the "laptop must be on" limitation.
+
 ## [0.2.0] - 2026-05-15
 
 ### Added
@@ -86,7 +108,8 @@ The original `0.1.0` README listed the author-identity requirement as a single l
 - Pairs with [`auto_project`](https://github.com/Sweet-Butters/auto_project)'s Telegram bot (`URL_ROUTES` env var) for phone-triggered runs.
 - Inspiration acknowledged in `README.md` — see *Acknowledgments*.
 
-[Unreleased]: https://github.com/Sweet-Butters/youtube-to-obsidian/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Sweet-Butters/youtube-to-obsidian/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Sweet-Butters/youtube-to-obsidian/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Sweet-Butters/youtube-to-obsidian/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Sweet-Butters/youtube-to-obsidian/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Sweet-Butters/youtube-to-obsidian/releases/tag/v0.1.0

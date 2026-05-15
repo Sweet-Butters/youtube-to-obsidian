@@ -1,30 +1,43 @@
 # youtube-to-obsidian — Claude context
 
-Public template repo. YouTube video → AI summary → Obsidian vault. Designed for zero-cost personal use via GitHub Actions on a self-hosted runner.
+Public template repo. YouTube video → AI summary → Obsidian vault. Designed for zero-cost personal use; runs as a **hybrid** GitHub Actions pipeline that prefers a self-hosted runner (residential IP, Whisper-capable) and falls back to a hosted-runner workflow with a WebShare residential proxy when the self-hosted machine is offline.
 
 > This file gives Claude (or any AI assistant) the context it needs to help with this project. It's deliberately concise — full user-facing docs live in [README.md](README.md) / [README.ko.md](README.ko.md).
 
 ## Architecture (one-liner)
 
 ```
-[Phone Telegram] → [Cloud Run auto_project bot] → [GHA self-hosted runner]
-                                                       │
-                                                       ├─ YouTube Data API (categoryId)
-                                                       ├─ youtube-transcript-api
-                                                       └─ auto_project.llm (Gemini → Groq → Cerebras)
-                                                       │
-                                                       ▼
-                                                  [vault/YouTube/*.md commit + push]
-                                                       │
-                                                       ▼
-                                                  [Local Obsidian + phone Obsidian Git]
+[Phone Telegram] → [Cloud Run auto_project bot ≥ v0.6.0]
+                          │
+                          │  checks: GET /repos/{repo}/actions/runners
+                          │  → online runner exists?
+                          │
+       ┌──────────────────┴───────────────────┐
+       │ yes (fast)                           │ no (fallback)
+       ▼                                      ▼
+[summarize-video.yml]                  [summarize-video-fallback.yml]
+   runs-on: self-hosted                    runs-on: ubuntu-latest
+   residential IP, ENABLE_WHISPER=1        WebShare proxy, Whisper off
+       │                                      │
+       └──────────────────┬───────────────────┘
+                          ▼
+       1. fetch_metadata    (YouTube Data API v3, any IP)
+       2. fetch_transcript  (3-tier: direct → WebShare → Whisper)
+       3. vault_indexer     (scan vault/YouTube for backlink ctx)
+       4. summarize         (auto_project.llm, embeds [[wikilinks]])
+       5. render_md         (frontmatter + body)
+       6. commit + push     (vault/YouTube/YYYY-MM-DD_slug_[id].md)
+       7. (fast path only) sync local clone via LOCAL_VAULT_PATH
+                          ▼
+       [Local Obsidian file watcher + Phone Obsidian Git pull]
 ```
 
 ## Dependencies
 
 - `auto_project @ v0.5.0` (public framework) — `llm`, `notify`, `state`, `youtube.categories`
-- `youtube-transcript-api` (>=1.2) — instance-based API (`api.list()`, `api.fetch()`)
-- `yt-dlp` — metadata enrichment fallback (currently unused; Data API is primary)
+- `youtube-transcript-api` (>=1.2) — instance-based API (`api.list()`, `api.fetch()`), supports `WebshareProxyConfig`
+- `yt-dlp` — audio download for Whisper fallback
+- `faster-whisper` (>=1.0) — local Whisper transcription, gated by `ENABLE_WHISPER=1`. Lazy-imported; safe to install on all runners.
 - `PyYAML` — frontmatter (de)serialization
 
 ## File naming
@@ -59,23 +72,33 @@ tags: list[str] (kebab-case, ASCII, starts with "youtube")
 
 The `category` field is the **user-editable display value**. `category_id` / `category_en` / `category_ko` are the source of truth and should not be edited by hand.
 
-## v1 intentional limitations
+## What changed from v0.1.x to v0.2.0
 
-- **No captions = error.** Whisper fallback not implemented; most popular videos have auto-captions so this rarely bites.
+**v0.1.x limitations** and how v0.2.0 resolves them:
+
+| v0.1.x limitation | v0.2.0 resolution |
+|---|---|
+| Pipeline only works while the self-hosted runner is online (laptop must be on) | Bot picks **fallback workflow** when no runner is online — uses GHA-hosted runner + WebShare proxy. Pipeline now always runs. |
+| Videos without captions error out (no Whisper) | **`ENABLE_WHISPER=1`** on the fast workflow activates local `faster-whisper` transcription. Slow (CPU) but free. Disabled on fallback workflow to save CI minutes. |
+| Notes are standalone — no cross-references | **vault_indexer** scans up to 50 most-recent vault notes, surfaces (title, category) to the LLM, which embeds `[[wikilinks]]` in `summary_long` when topically relevant. Knowledge graph forms organically. |
+
+## Intentional limitations (still present)
+
 - **Single language summary.** Output language matches transcript language. No translation step.
 - **Tags are English kebab-case only.** Keeps cross-vault deduplication clean.
-- **Self-hosted runner required.** Cloud-provider IPs are blocked by YouTube for transcript scraping.
+- **WebShare free tier may 429.** Free residential proxies are shared and YouTube rate-limits popular ones. Architecture works, but a given fallback request may fail and need a retry. Upgrade to WebShare paid (~$2.99/mo) for stickier sessions if this becomes a real problem.
 
 ## Setup checklist (for a fresh fork)
 
 1. ◌ `gh repo fork --clone` (or template-use)
 2. ◌ `mv vault.example vault` and commit
 3. ◌ GitHub Secrets: `YOUTUBE_API_KEY`, `GEMINI_API_KEY` (use `gcloud → gh secret set` pipeline from README)
-4. ◌ Self-hosted runner installed + registered + systemd user service
-5. ◌ (Optional) `LOCAL_VAULT_PATH` repo variable set if you want instant local sync
-6. ◌ (Optional) Connect `auto_project` Telegram bot for phone-triggered runs
-7. ◌ Open `vault/` in Obsidian, install Dataview plugin
-8. ◌ (Mobile) Termux + clone, Obsidian Git plugin with required settings (Author name/email MUST be set even with Disable push)
+4. ◌ (Recommended) GitHub Secrets: `WEBSHARE_USER`, `WEBSHARE_PASS` — required for the fallback path. Skip if you only want the fast path.
+5. ◌ Self-hosted runner installed + registered + systemd user service (for the fast path)
+6. ◌ (Optional) `LOCAL_VAULT_PATH` repo variable set if you want instant local sync
+7. ◌ (Optional) Connect `auto_project` Telegram bot (≥ v0.6.0) for phone-triggered runs with automatic hybrid routing
+8. ◌ Open `vault/` in Obsidian, install Dataview plugin
+9. ◌ (Mobile) Termux + clone, Obsidian Git plugin with required settings (Author name/email MUST be set even with Disable push)
 
 ## Self-hosted runner notes
 

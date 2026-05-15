@@ -48,25 +48,42 @@ YouTube URL이 주어지면 이 파이프라인이:
     │ URL 메시지
     ▼
 [Cloud Run 서비스 (auto_project 봇, URL_ROUTES)]
+    │ 러너 상태 확인 후 fast / fallback 워크플로우 선택
     │ workflow_dispatch
     ▼
-[GitHub Actions — 가정 IP의 셀프호스트 러너]
-    │
-    ├─ YouTube Data API v3       → 메타데이터 + categoryId
-    ├─ youtube-transcript-api    → 자막
-    └─ auto_project.llm (무료)    → 요약 + 태그
-    │
-    ▼
-[vault/YouTube/YYYY-MM-DD_slug_[video_id].md 커밋 + push]
-    │
-    ▼
-[로컬 Obsidian (파일 워처) + 폰 Obsidian (Obsidian Git 자동 pull)]
+┌──────────────────────────────────────┬──────────────────────────────────────┐
+│   FAST PATH (셀프호스트 online)       │   FALLBACK PATH (셀프호스트 offline) │
+│   runs-on: [self-hosted, linux]      │   runs-on: ubuntu-latest             │
+│                                      │                                      │
+│   Direct IP (가정 residential)        │   WebShare residential proxy         │
+│   • youtube-transcript-api (direct)  │   • youtube-transcript-api (proxy)   │
+│   • Whisper local 폴백 (무료)         │   • Whisper 비활성 (CI 시간 절약)    │
+│   ~30-45초 종단간                     │   ~40-60초, free proxy는 best-effort │
+└──────────────────────┬───────────────┴────────────────┬─────────────────────┘
+                       │                                │
+                       │   어느 path든:                  │
+                       ▼                                ▼
+        ┌─────────────────────────────────────────────────────┐
+        │ • YouTube Data API v3        → 메타데이터 + categoryId│
+        │ • 자막 추출 (위 둘 중 하나)                            │
+        │ • vault_indexer              → 백링크 컨텍스트         │
+        │ • auto_project.llm (Gemini)  → 요약 + 태그 +          │
+        │                                [[wikilinks]]          │
+        │ • vault/YouTube/...md 커밋 + push                    │
+        └─────────────────────────────┬───────────────────────┘
+                                      ▼
+        [로컬 Obsidian (파일 워처) + 폰 Obsidian (Obsidian Git pull)]
 ```
 
-셀프호스트 러너가 **필수** — GitHub 호스티드 러너 (Azure IP) 는 YouTube의 anti-scraping 정책에 차단당합니다. 아래 [셀프호스트 러너 셋업](#셀프호스트-러너-셋업) 섹션 참고.
+`auto_project` 봇 (v0.6.0+) 이 dispatch 전에 `GET /repos/{owner}/{repo}/actions/runners` 호출해서 실제로 실행될 워크플로우를 결정 — 즉 **가정 머신이 켜져있든 꺼져있든 사용자는 항상 결과를 받습니다**.
+
+> **왜 path가 두 개?** YouTube가 클라우드 IP (AWS, GCP, Azure, **GitHub 호스티드 러너**) 에서 오는 자막 스크래핑을 차단. 셀프호스트 러너가 가정 IP로 이걸 우회. 가정 머신이 꺼져있을 때는 fallback path가 residential proxy로 대신 처리.
 
 ## 주요 기능
 
+- **항상 작동하는 hybrid 실행** (v0.2.0+) — 봇이 러너 가용성 확인 후 fast 셀프호스트 path (가정 IP, Whisper 활성, ~30초) 와 호스티드 fallback path (WebShare proxy, ~50초) 사이에서 선택. v0.1.x의 "랩탑 켜져있어야 함" 한계 제거.
+- **자막 없는 영상도 처리** (v0.2.0+) — 셀프호스트 러너가 실행 주체일 때 `faster-whisper` 로 오디오 로컬 전사. 무료, 오프라인, CPU만.
+- **자동 Zettelkasten 백링크** (v0.2.0+) — LLM이 최근 vault 노트 50개를 컨텍스트로 받아 주제적 연관 있을 때 `[[정확한 제목]]` wikilink를 자동 삽입. 노트가 쌓일수록 지식 그래프가 유기적으로 성장.
 - **이중 언어 카테고리 라벨** — 모든 노트가 `category_en` ("Science & Technology") 와 `category_ko` ("과학/기술") 둘 다 저장. frontmatter의 `category` 는 `--lang` 설정에 따라 둘 중 하나를 미러링; 나중에 `scripts/recategorize.py` 로 vault 전체 한 번에 전환 가능.
 - **YouTube 공식 카테고리** — Data API의 `categoryId` (15개 카테고리) 사용. LLM 추측 X, 일관성 보장.
 - **무료 LLM** — Gemini 무료 tier + Groq, Cerebras 자동 폴백. 유료 API 필요 없음.
@@ -200,22 +217,35 @@ gh workflow run summarize-video.yml \
 
 ## 설정
 
-### GitHub Secrets (workflow에 필수)
+### GitHub Secrets
 
-| Secret | 출처 |
-|---|---|
-| `YOUTUBE_API_KEY` | GCP → APIs & Services → YouTube Data API v3 |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (무료) |
-| `GROQ_API_KEY` | (선택) [Groq Cloud](https://console.groq.com) — fallback LLM |
-| `CEREBRAS_API_KEY` | (선택) [Cerebras Cloud](https://cloud.cerebras.ai) — fallback LLM |
-| `TELEGRAM_BOT_TOKEN` | (선택) [@BotFather](https://t.me/BotFather) — 폰 트리거용 |
-| `TELEGRAM_CHAT_ID` | (선택) 본인 chat ID |
+| Secret | 출처 | 필수? |
+|---|---|---|
+| `YOUTUBE_API_KEY` | GCP → APIs & Services → YouTube Data API v3 | 필수 |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (무료) | 필수 |
+| `WEBSHARE_USER` | [WebShare](https://www.webshare.io) → Proxy → Username (residential proxy 인증) | **fallback path만** |
+| `WEBSHARE_PASS` | WebShare → Proxy → Password | **fallback path만** |
+| `GROQ_API_KEY` | [Groq Cloud](https://console.groq.com) — secondary LLM | 선택 |
+| `CEREBRAS_API_KEY` | [Cerebras Cloud](https://cloud.cerebras.ai) — tertiary LLM | 선택 |
+| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) | 선택 (폰 트리거용) |
+| `TELEGRAM_CHAT_ID` | 본인 chat ID | 선택 (폰 트리거용) |
+
+셀프호스트 fast path만 쓸 거면 `WEBSHARE_*` 는 안 채워도 됩니다 — fallback 워크플로우가 동작에 필요한 값을 못 받지만, 봇이 러너 online이면 어차피 dispatch 안 함.
 
 ### Repository variables (선택)
 
 | Variable | 용도 |
 |---|---|
 | `LOCAL_VAULT_PATH` | 셀프호스트 러너 머신에 있는 본 레포의 로컬 클론 절대 경로. 설정 시 매 push 후 workflow가 `git pull` 해서 로컬 Obsidian vault가 즉시 새 노트 인식. 예: `/home/<YOUR_USER>/youtube-to-obsidian` |
+
+### Workflow-level env vars (secret 아님)
+
+워크플로우 YAML에서 직접 설정하는 env vars:
+
+| Variable | 설정 위치 | 용도 |
+|---|---|---|
+| `ENABLE_WHISPER=1` | `summarize-video.yml` (fast path만) | 자막 없는 영상에 대해 로컬 `faster-whisper` 전사 활성화. Fallback 워크플로우에서는 꺼두어 CI 시간 절약. |
+| `WHISPER_MODEL=base` | `summarize-video.yml` | 모델 크기 — `tiny`/`base`/`small`/`medium`/`large-v3`. 클수록 정확하지만 느리고 디스크 많이 씀. |
 
 ## 수동 실행
 

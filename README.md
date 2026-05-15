@@ -48,25 +48,42 @@ The output is queryable with **Dataview** — sort by date watched, group by cat
     │ URL message
     ▼
 [Cloud Run service (auto_project bot, URL_ROUTES)]
+    │ checks runner status, picks fast or fallback workflow
     │ workflow_dispatch
     ▼
-[GitHub Actions — self-hosted runner on home IP]
-    │
-    ├─ YouTube Data API v3       → metadata + categoryId
-    ├─ youtube-transcript-api    → captions
-    └─ auto_project.llm (free)   → summary + tags
-    │
-    ▼
-[vault/YouTube/YYYY-MM-DD_slug_[video_id].md committed + pushed]
-    │
-    ▼
-[Local Obsidian (file watcher) + Phone Obsidian (Obsidian Git auto-pull)]
+┌──────────────────────────────────────┬──────────────────────────────────────┐
+│   FAST PATH (self-hosted online)     │   FALLBACK PATH (self-hosted offline)│
+│   runs-on: [self-hosted, linux]      │   runs-on: ubuntu-latest             │
+│                                      │                                      │
+│   Direct IP (residential, home)      │   WebShare residential proxy         │
+│   • youtube-transcript-api (direct)  │   • youtube-transcript-api (proxy)   │
+│   • Whisper local fallback (free)    │   • Whisper disabled (CI minutes)    │
+│   ~30-45s end-to-end                 │   ~40-60s, best-effort on free proxy │
+└──────────────────────┬───────────────┴────────────────┬─────────────────────┘
+                       │                                │
+                       │   Either path:                 │
+                       ▼                                ▼
+        ┌─────────────────────────────────────────────────────┐
+        │ • YouTube Data API v3        → metadata + categoryId│
+        │ • Transcript fetch (one of the two paths above)     │
+        │ • vault_indexer              → backlink context     │
+        │ • auto_project.llm (Gemini)  → summary + tags +     │
+        │                                [[wikilinks]]        │
+        │ • vault/YouTube/...md commit + push                 │
+        └─────────────────────────────┬───────────────────────┘
+                                      ▼
+        [Local Obsidian (file watcher) + Phone Obsidian (Obsidian Git pull)]
 ```
 
-The self-hosted runner is **required** because GitHub-hosted runners (Azure IPs) are blocked by YouTube's anti-scraping. See [the self-hosted runner section](#self-hosted-runner-setup) below.
+The `auto_project` bot (≥ v0.6.0) calls `GET /repos/{owner}/{repo}/actions/runners` before dispatch and picks the workflow that will actually run — so the user always gets a result, whether the home machine is on or not.
+
+> **Why two paths?** YouTube blocks the unofficial caption scrape from cloud-provider IPs (AWS, GCP, Azure, **GitHub-hosted runners**). The self-hosted runner solves this by running on a residential IP. The fallback path keeps the pipeline alive while the on-prem machine is sleeping, using a residential proxy instead.
 
 ## Features
 
+- **Always-on hybrid execution** (v0.2.0+) — the bot picks between a fast self-hosted path (residential IP, Whisper enabled, ~30s) and a hosted-runner fallback path (WebShare proxy, ~50s) based on runner availability. Removes the "laptop must be on" limitation of v0.1.x.
+- **Caption-less videos handled** (v0.2.0+) — when the self-hosted runner is the executor, `faster-whisper` transcribes the audio locally when no captions exist. Free, offline, CPU-only.
+- **Automatic Zettelkasten backlinks** (v0.2.0+) — the LLM is fed the 50 most-recent vault notes as context and embeds `[[exact title]]` wikilinks where topically related. The knowledge graph grows organically.
 - **Bilingual category labels** — every note stores both `category_en` ("Science & Technology") and `category_ko` ("과학/기술"). Frontmatter `category` mirrors one based on your `--lang` setting; flip across the whole vault later with `scripts/recategorize.py`.
 - **YouTube official categories** — uses Data API's `categoryId` (15 categories) for authoritative classification. No LLM guessing.
 - **Zero-cost LLM** — Gemini free tier with automatic Groq and Cerebras fallback. No paid API needed.
@@ -200,22 +217,35 @@ Open the `vault/` folder in [Obsidian](https://obsidian.md) (Desktop or Mobile).
 
 ## Configuration
 
-### GitHub Secrets (required for the workflow)
+### GitHub Secrets
 
-| Secret | Source |
-|---|---|
-| `YOUTUBE_API_KEY` | GCP → APIs & Services → YouTube Data API v3 |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (free) |
-| `GROQ_API_KEY` | (Optional) [Groq Cloud](https://console.groq.com) — fallback LLM |
-| `CEREBRAS_API_KEY` | (Optional) [Cerebras Cloud](https://cloud.cerebras.ai) — fallback LLM |
-| `TELEGRAM_BOT_TOKEN` | (Optional) [@BotFather](https://t.me/BotFather) — for phone triggers |
-| `TELEGRAM_CHAT_ID` | (Optional) Your chat ID |
+| Secret | Source | Required? |
+|---|---|---|
+| `YOUTUBE_API_KEY` | GCP → APIs & Services → YouTube Data API v3 | yes |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (free) | yes |
+| `WEBSHARE_USER` | [WebShare](https://www.webshare.io) → Proxy → Username (residential proxy auth) | **for fallback path only** |
+| `WEBSHARE_PASS` | WebShare → Proxy → Password | **for fallback path only** |
+| `GROQ_API_KEY` | [Groq Cloud](https://console.groq.com) — secondary LLM | optional |
+| `CEREBRAS_API_KEY` | [Cerebras Cloud](https://cloud.cerebras.ai) — tertiary LLM | optional |
+| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) | optional (phone triggers) |
+| `TELEGRAM_CHAT_ID` | Your chat ID | optional (phone triggers) |
+
+If you only run the self-hosted fast path you can skip `WEBSHARE_*` entirely — the fallback workflow simply won't have what it needs to run, and the bot will never dispatch it as long as your runner is online.
 
 ### Repository variables (optional)
 
 | Variable | Purpose |
 |---|---|
 | `LOCAL_VAULT_PATH` | Absolute path to a local clone of this repo on the self-hosted runner machine. When set, the workflow `git pull`s after each push so a local Obsidian vault sees the new note instantly. Example: `/home/<YOUR_USER>/youtube-to-obsidian` |
+
+### Workflow-level env vars (no secret needed)
+
+The pipeline reads several env vars set directly in workflow YAML, not from secrets:
+
+| Variable | Where it's set | Purpose |
+|---|---|---|
+| `ENABLE_WHISPER=1` | `summarize-video.yml` (fast path only) | Activates local `faster-whisper` transcription for caption-less videos. Disabled on the fallback workflow to save CI minutes. |
+| `WHISPER_MODEL=base` | `summarize-video.yml` | Model size — `tiny`/`base`/`small`/`medium`/`large-v3`. Bigger = more accurate, slower, more disk. |
 
 ## Manual run
 
