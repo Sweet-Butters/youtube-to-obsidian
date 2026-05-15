@@ -26,3 +26,7 @@ vault.example/.obsidian/plugins/*/data.json
 *.pem
 keys.txt
 .env.local
+
+# Screenshots / personal credentials — never commit
+webshare_*.png
+*.screenshot.png
